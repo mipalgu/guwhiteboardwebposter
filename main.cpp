@@ -8,7 +8,6 @@
 
 #include <assert.h>
 
-
 #include <cstdio>
 #include <sstream>
 #include <cstdlib>
@@ -133,8 +132,9 @@ struct header_info_s
     enum HTTP_Verb verb;
     char url[100];
     enum HTTP_Version version;
-    //enum Content_Type content_type;
-    enum Content_Type accept; //text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8
+    enum Content_Type content_type;
+    int content_length;
+    enum Content_Type accept; 
 };
 
 void serverd(const char *wbname, int port);
@@ -142,13 +142,14 @@ socket_descriptor *init_socket(int port);
 std::string recv_header(int *fd);
 static void signal_handler();
 void close_socket(socket_descriptor *sd);
+std::string recv_n(int *fd, int n);
 
 //request handling
 void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header);
 void handle_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
 void handle_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
 void handle_get_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header);
-void handle_post_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
+void handle_post_patch_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
 void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header);
 void usage_page(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
 void generate_response(int *fd, enum HTTP_Version version, enum HTTP_Code code, enum Content_Type type, std::string body);
@@ -159,7 +160,10 @@ inline bool get_header_line(char *header, const char *field, char *output);
 enum HTTP_Verb parse_verb(char *verb);
 enum HTTP_Version parse_version(char *version);
 enum Content_Type parse_content_type(char *content_type);
-int detect_content_length(char *header);
+
+//strings
+inline int ishex(int x);
+int decode(const char *s, char *dec);
 
 
 int main(int argc, char **argv) 
@@ -238,11 +242,7 @@ void serverd(const char *wbname, int port)
 bool parse_header(char *header, struct header_info_s *header_s)
 {
     std::string header_str = std::string(header);
-    //get first line
     std::string first = header_str.substr(0, header_str.find("\r\n"));
-#ifdef PARSE_DEBUG
-    fprintf(stderr, "First header line: '%s'\n", first.c_str());
-#endif
     //get HTTP verb, URL and HTTP version
     char verb[7]; memset(&verb[0], 0, sizeof(verb));
     char url[100]; memset(&url[0], 0, sizeof(url));
@@ -264,10 +264,21 @@ bool parse_header(char *header, struct header_info_s *header_s)
     memset(&accept[0], 0, sizeof(accept));
     if(get_header_line(header, "Accept", accept) == false)
         return false;
-
     header_s->accept = parse_content_type(&accept[0]);
     if(header_s->accept == NUM_SUPPORTED_CONTENT_TYPES)
         return false;
+
+    char content_type[100];
+    memset(&content_type[0], 0, sizeof(content_type));
+    if(get_header_line(header, "Content-Type", content_type)) //Optional
+        header_s->content_type = parse_content_type(&content_type[0]); 
+
+    char content_length[100];
+    memset(&content_length[0], 0, sizeof(content_length));
+    if(get_header_line(header, "Content-Length", content_length)) //Optional
+        header_s->content_length = atoi(content_length);
+    else
+        header_s->content_length = -1;
 
     return true;
 }
@@ -389,9 +400,10 @@ void handle_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_in
             handle_get_request_json(fd, wbd, header);
             break;
         }
+        case HTTP_PATCH:
         case HTTP_POST:
         {
-            handle_post_request_json(fd, wbd, header, body);
+            handle_post_patch_request_json(fd, wbd, header, body);
             break;
         }
         case HTTP_PUT:
@@ -399,10 +411,6 @@ void handle_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_in
             break;
         }
         case HTTP_DELETE:
-        {
-            break;
-        }
-        case HTTP_PATCH:
         {
             break;
         }
@@ -432,16 +440,19 @@ void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
 #define BODY_BUF_SIZE 1000
     char body[BODY_BUF_SIZE];
     memset(&body[0], 0, sizeof body);
-    int content_length = detect_content_length(&header[0]);
+    int content_length = header_info.content_length;
     if(content_length > 0) //Need to read message body?
     {   
         if(content_length <= BODY_BUF_SIZE)
-            recv(*fd, body, sizeof(content_length), 0);
+        {
+            std::string s = recv_n(fd, content_length);
+            memcpy(&body[0], s.c_str(), s.length());
+        }
         else
             fprintf(stderr, "Message Body size of '%d' is larger than buffer", content_length);
     }
 
-    switch(header_info.verb)
+    switch(header_info.accept)
     {
         case Text_HTML:
         {
@@ -474,6 +485,22 @@ std::string recv_header(int *fd)
     return s;
 }
 
+std::string recv_n(int *fd, int n)
+{
+    std::string s;
+    int c_n = n;
+    int r;
+    char c[2];
+    do
+    {
+        r = recv(*fd, c, sizeof(char), 0);
+        c_n -= r;
+        s.append(&c[0]);
+    }
+    while(r == 1 && c_n > 0);
+    return s;
+}
+
 void generate_response(int *fd, enum HTTP_Version version, enum HTTP_Code code, enum Content_Type type, std::string body)
 {
     std::string response;
@@ -495,7 +522,7 @@ void generate_response(int *fd, enum HTTP_Version version, enum HTTP_Code code, 
 
 void handle_get_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header)
 {
-    std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.api+json; charset=UTF-8\r\n\r\n");
+    std::string response;
 
     if(strcmp(header->url, "/") == 0 || strlen(header->url) == 0)
     {   //URL == /           - all messages, array
@@ -529,60 +556,84 @@ void handle_get_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
         free(s);
         response.append("\"}");
     } 
-    write(*fd, response.c_str(), sizeof(char) * response.length()); 
-    close(*fd);
+    generate_response(fd, header->version, _200_OK, header->accept, response);
 }
 
-void handle_post_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body)
+void handle_post_patch_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body)
 {
-    std::string response = std::string("HTTP/1.1 200 OK\r\nContent-Type: application/vnd.api+json; charset=UTF-8\r\n\r\n");
+    std::string response;
 
     if(strcmp(header->url, "/") == 0 || strlen(header->url) == 0)
     {   //URL == /           - all messages, array
-        response.append("{\"types\":[\r\n");
-
-        for(int i = 0; i < GSW_NUM_TYPES_DEFINED; i++)
-        {
-            response.append("\t{\"type\":\"");
-            response.append(guWhiteboard::WBTypes_stringValues[i]);
-            response.append("\", \"parsable\":");
-            char *s = whiteboard_get_from(wbd, guWhiteboard::WBTypes_stringValues[i]);
-            if(strcmp(s, "##unsupported##") == 0)
-                response.append("false");
-            else
-                response.append("true");
-            free(s);
-            response.append("}");
-            if(i != GSW_NUM_TYPES_DEFINED - 1)
-                response.append(",");
-            response.append("\r\n");
-        }
-        response.append("]}\r\n");
+        generate_response(fd, header->version, _501_Not_Implemented, header->accept, response);
+        return;
     } 
     else 
     {   //URL == /$(msg) 
-        response.append("{\"value\":\"");
+        char value[1000]; memset(&value[0], 0, sizeof(value));
+        char value_decoded[1000]; memset(&value_decoded[0], 0, sizeof(value_decoded));
+        int r = sscanf(body, "{ \"value\":\"%[^\"]\" }", value);
+        if(r != 1)
+        {
+            generate_response(fd, header->version, _400_Bad_Request, header->accept, response);
+            return;
+        }
+		decode(&value[0], value_decoded);
+
         char msg_string[100]; msg_string[0] = '\0';
         sscanf(header->url, "/%s", msg_string);
-        char *s = whiteboard_get_from(wbd, msg_string);
-        response.append(s);
-        free(s);
-        response.append("\"}");
+
+        bool exists = guWhiteboard::post(msg_string, value_decoded, wbd);
+        if(!exists)
+        {
+            generate_response(fd, header->version, _400_Bad_Request, header->accept, response);
+            return;
+        }
+        handle_get_request_json(fd, wbd, header);
     } 
-    write(*fd, response.c_str(), sizeof(char) * response.length()); 
-    close(*fd);
 }
+
+//https://www.rosettacode.org/wiki/URL_decoding#C
+//--------------------
+inline int ishex(int x)
+{
+	return	(x >= '0' && x <= '9')	||
+		(x >= 'a' && x <= 'f')	||
+		(x >= 'A' && x <= 'F');
+}
+ 
+int decode(const char *s, char *dec)
+{
+	char *o;
+	const char *end = s + strlen(s);
+	int c;
+ 
+	for (o = dec; s <= end; o++) {
+		c = *s++;
+		if (c == '+') c = ' ';
+		else if (c == '%' && (	!ishex(*s++)	||
+					!ishex(*s++)	||
+					!sscanf(s - 2, "%2x", &c)))
+			return -1;
+ 
+		if (dec) *o = c;
+	}
+ 
+	return o - dec;
+}
+//--------------------
+
 
 void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header)
 {
     std::string response = std::string(""
 "<!DOCTYPE html><html><head><title>guwhiteboardwebposter</title>"
 "<style>body { background-color: #FFFFFF }"
-"</style></head>"
-"<body onload=\"whiteboardMonitor();\">\r\n");
+"</style></head>");
 
     if(strcmp(header->url, "/") == 0 || strlen(header->url) == 0)
     {   //URL == /           - all messages, array
+		response.append("<body onload=\"whiteboardMonitor();\">\r\n");
         response.append("<script>\r\n"
 		"function whiteboardMonitor() {\r\n"
 		"	setInterval(function(){\r\n"
@@ -670,25 +721,38 @@ void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
     {   //URL == /$(msg) 
         char msg_name[100]; msg_name[0] = '\0';
         sscanf(header->url, "/%s", msg_name);
+		response.append("<body>\r\n");
         response.append("<script>\r\n"
 		"function submitJSON(e) {\r\n"
         "   var value = encodeURIComponent(document.getElementById('textarea').value);\r\n"
-        "   var params = \"value=\" + value;"
+        "   var params = \"{ \\\"value\\\":\\\"\" + value + \"\\\" }\";"
 		"	e.preventDefault();\r\n"
 		"   var xhttp = new XMLHttpRequest();\r\n"
   		"	xhttp.onreadystatechange = function() {\r\n"
     	"		if (this.readyState == 4 && this.status == 200) {\r\n"
 		"			var arr = JSON.parse(this.responseText);\r\n"
         "    		document.getElementById('textarea').innerHTML = arr.value;\r\n"
+        "    		document.getElementById('submit').style = 'background-color: #00FF00';\r\n"
+        "    		setTimeout(resetButton, 500);\r\n"
+    	"		}\r\n"
+    	"		else\r\n"
+    	"		{\r\n"
+        "    		document.getElementById('submit').style = 'background-color: #FF0000';\r\n"
+        "    		setTimeout(resetButton, 2000);\r\n"
     	"		}\r\n"
   		"	};\r\n"
-  		"	xhttp.open(\"POST\", \"/json/"); response.append(msg_name); response.append("\", true);\r\n"
-        "   xhttp.setRequestHeader(\"Content-type\", \"application/x-www-form-urlencoded\");"
+  		"	xhttp.open(\"POST\", \"/"); response.append(msg_name); response.append("\", true);\r\n"
+        "   xhttp.setRequestHeader(\"Content-Type\", \"application/vnd.api+json\");"
+        "   xhttp.setRequestHeader(\"Accept\", \"application/vnd.api+json\");"
   		"	\r\n"
   		"	xhttp.send(params);\r\n"
         "   return false;\r\n"
 		"\r\n"
 		"}\r\n"
+		"function resetButton() {\r\n"
+        "   document.getElementById('submit').style = '';\r\n"
+		"}\r\n"
+
 		"</script>\r\n");
         char *msg_value = whiteboard_get_from(wbd, msg_name);
         response.append("<h1>");
@@ -701,7 +765,7 @@ void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
 		response.append("</textarea>"
 		"</div>\r\n"
 		"<div style='width:50%; text-align:right;' >\r\n"
-  		"	<input type='submit' />\r\n"
+  		"	<input id='submit' type='submit' />\r\n"
 		"</div>\r\n"
 		"	</form>\r\n"
 		"	<script>document.getElementById('form').addEventListener('submit', submitJSON)</script>\r\n");
@@ -709,7 +773,7 @@ void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
     } 
     response.append("</body></html>\r\n");
 
-    generate_response(fd, HTTP_V1_1, _200_OK, Text_HTML, response);
+    generate_response(fd, header->version, _200_OK, header->accept, response);
 }
 
 void usage_page(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body)
@@ -724,20 +788,6 @@ void usage_page(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_inf
 "</body></html>\r\n";
 
     generate_response(fd, HTTP_V1_1, _200_OK, Text_HTML, usage_response);
-}
-
-int detect_content_length(char *header)
-{
-    std::string header_s = std::string(header);
-    std::string field = std::string("Content-Length: ");
-    int index = header_s.find(field);
-    if(index == std::string::npos)
-        return -1;
-    int field_data_pos = index + field.length();
-    int end_of_field_data_pos = header_s.substr(field_data_pos, header_s.length()).find("\r\n");
-    std::string field_value = header_s.substr(field_data_pos, end_of_field_data_pos);
-    int i = atoi(field_value.c_str());
-    return i;
 }
 
 static void signal_handler()
