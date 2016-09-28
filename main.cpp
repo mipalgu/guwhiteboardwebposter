@@ -22,6 +22,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <err.h>
+#include <signal.h> //signal
 
 
 
@@ -39,13 +40,9 @@
 typedef struct socket_s
 {
     int                 socket;         ///< socket file descriptor
-
     void *data;         //recv buffer poitner
-
     struct timeval timestamp; ///< when data was received
-    
     size_t data_size;   ///< size of the data
-
 } socket_descriptor;
 
 struct header_info_s;
@@ -83,6 +80,7 @@ enum HTTP_Code
     UNKNOWN_HTTP_CODE
 };
 
+extern const char *HTTP_Code_Strings[];
 const char *HTTP_Code_Strings[] = 
 {
         "200 OK",
@@ -106,6 +104,7 @@ enum HTTP_Version
     UNKNOWN_HTTP_VERSION
 };
 
+extern const char *HTTP_Version_Strings[];
 const char *HTTP_Version_Strings[] = 
 {
         "HTTP/1.0",
@@ -120,6 +119,7 @@ enum Content_Type
     NUM_SUPPORTED_CONTENT_TYPES
 };
 
+extern const char *Content_Type_Strings[];
 const char *Content_Type_Strings[] = 
 {
         "text/html",
@@ -140,7 +140,6 @@ struct header_info_s
 void serverd(const char *wbname, int port);
 socket_descriptor *init_socket(int port);
 std::string recv_header(int *fd);
-static void signal_handler();
 void close_socket(socket_descriptor *sd);
 std::string recv_n(int *fd, int n);
 
@@ -151,7 +150,6 @@ void handle_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_in
 void handle_get_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header);
 void handle_post_patch_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
 void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header);
-void usage_page(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body);
 void generate_response(int *fd, enum HTTP_Version version, enum HTTP_Code code, enum Content_Type type, std::string body);
 
 //Parser functions
@@ -165,6 +163,19 @@ enum Content_Type parse_content_type(char *content_type);
 inline int ishex(int x);
 int decode(const char *s, char *dec);
 
+
+[[ noreturn ]] static void aborting_signal_handler(int /*signum*/);
+static bool aborting_server = false;
+
+[[ noreturn ]] static void aborting_signal_handler(int /*signum*/)
+{
+    aborting_server = true;
+
+    fprintf(stdout, "Shutting down GU Whiteboard Web Poster server...\n");
+    //Killing the process in the signal handler.
+    //This is done here because when the thread resumes it may be stuck in a recv call
+    std::exit(EXIT_SUCCESS); 
+}
 
 int main(int argc, char **argv) 
 {
@@ -206,15 +217,14 @@ int main(int argc, char **argv)
     
     argv += optind;
     argc -= optind;
+
+    signal(SIGINT,  aborting_signal_handler);
+    signal(SIGTERM, aborting_signal_handler);
+    signal(SIGQUIT, aborting_signal_handler);
     
 	//Start
     serverd(wbname, port); //Returns on server shutdown signal
 }
-
-char response_header[] = "HTTP/1.1 200 OK\r\n"
-"Content-Type: application/xml; charset=UTF-8\r\n\r\n";
-char response_wb[] = ""
-"";
 
 void serverd(const char *wbname, int port)
 {
@@ -225,13 +235,17 @@ void serverd(const char *wbname, int port)
 
     int fd;
 
-    while (1) 
+    while (!aborting_server) 
     {
         fd = accept(sd->socket, NULL, NULL);
 
         std::string header = recv_header(&fd);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wold-style-cast"
+        char *header_c = (char *)header.c_str();
+#pragma clang diagnostic push
 
-        handle_request(&fd, wbd, (char *)header.c_str());
+        handle_request(&fd, wbd, header_c);
 
         //close(client_fd);
     }
@@ -286,7 +300,7 @@ bool parse_header(char *header, struct header_info_s *header_s)
 enum Content_Type parse_content_type(char *content_type)
 {
     std::vector<std::string> types = components_of_string_separated(content_type, ',');
-    for(int t = 0; t < types.size(); t++)
+    for(size_t t = 0; t < types.size(); t++)
     {
         std::string type = types[t];
         for(int i = 0; i < NUM_SUPPORTED_CONTENT_TYPES; i++)
@@ -341,7 +355,7 @@ inline bool get_header_line(char *header, const char *field, char *output)
 {
     std::string header_str = std::string(header);
     std::string target = std::string(field).append(": ");
-    int index = header_str.find(target);
+    size_t index = header_str.find(target);
     if(index == std::string::npos)
     {
 #ifdef PARSE_DEBUG
@@ -349,8 +363,8 @@ inline bool get_header_line(char *header, const char *field, char *output)
 #endif
         return false;
     }
-    int start_value_pos = index + target.length();
-    int end_value_pos = header_str.find("\r\n", start_value_pos);
+    unsigned long start_value_pos = index + target.length();
+    unsigned long end_value_pos = header_str.find("\r\n", start_value_pos);
     std::string value = header_str.substr(start_value_pos, end_value_pos - start_value_pos);
     memcpy(output, value.c_str(), sizeof(char)*value.length());
 #ifdef PARSE_DEBUG
@@ -359,8 +373,13 @@ inline bool get_header_line(char *header, const char *field, char *output)
     return value.length() > 0;
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
 void handle_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body)
+#pragma clang diagnostic push
 {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
     switch(header->verb)
     {
         case HTTP_GET:
@@ -370,7 +389,6 @@ void handle_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_in
         }
         case HTTP_POST:
         {
-            //handle_post_request_html(fd, wbd, header, body);
             break;
         }
         case HTTP_PUT:
@@ -386,13 +404,15 @@ void handle_html(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_in
             break;
         }
         default:
-            usage_page(fd, wbd, header, body);
             break;
     }
+#pragma clang diagnostic pop
 }
    
 void handle_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body)
 {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
     switch(header->verb)
     {
         case HTTP_GET:
@@ -415,9 +435,9 @@ void handle_json(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_in
             break;
         }
         default:
-            usage_page(fd, wbd, header, body);
             break;
     }
+#pragma clang diagnostic pop
 }
 
 void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
@@ -452,6 +472,8 @@ void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
             fprintf(stderr, "Message Body size of '%d' is larger than buffer", content_length);
     }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wswitch-enum"
     switch(header_info.accept)
     {
         case Text_HTML:
@@ -469,13 +491,14 @@ void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
             break;
         }
     }
+#pragma clang diagnostic pop
 }
 
 std::string recv_header(int *fd)
 {
     std::string s;
     char c[2];
-    int r;
+    size_t r;
     do
     {
         r = recv(*fd, c, sizeof(char), 0);
@@ -489,7 +512,7 @@ std::string recv_n(int *fd, int n)
 {
     std::string s;
     int c_n = n;
-    int r;
+    size_t r;
     char c[2];
     do
     {
@@ -616,10 +639,10 @@ int decode(const char *s, char *dec)
 					!sscanf(s - 2, "%2x", &c)))
 			return -1;
  
-		if (dec) *o = c;
+		if (dec) *o = static_cast<char>(c);
 	}
  
-	return o - dec;
+	return static_cast<int>(o - dec);
 }
 //--------------------
 
@@ -776,30 +799,9 @@ void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
     generate_response(fd, header->version, _200_OK, header->accept, response);
 }
 
-void usage_page(int *fd, gu_simple_whiteboard_descriptor *wbd, struct header_info_s *header, char *body)
-{
-    char usage_response[] = ""
-"<!DOCTYPE html><html><head><title>guwhiteboardwebposter</title>"
-"<style>body { background-color: #FFFFFF }"
-"h1 { font-size:4cm; text-align: center; color: black;"
-" text-shadow: 0 0 2mm red}</style></head>"
-"<body><h1>Usage Page</h1>\r\n"
-"<h2>TODO: Fill in</h2>"
-"</body></html>\r\n";
-
-    generate_response(fd, HTTP_V1_1, _200_OK, Text_HTML, usage_response);
-}
-
-static void signal_handler()
-{
-
-}
-
-
-
 socket_descriptor *init_socket(int port)
 {
-    socket_descriptor *sd = (socket_descriptor *)calloc(sizeof(socket_descriptor), 1);
+    socket_descriptor *sd = static_cast<socket_descriptor *>(calloc(sizeof(socket_descriptor), 1));
     assert(sd);
 
     //modified from: http://beej.us/guide/bgnet/examples/listener.c
