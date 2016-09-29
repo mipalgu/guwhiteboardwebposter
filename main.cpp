@@ -497,12 +497,12 @@ void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
 std::string recv_header(int *fd)
 {
     std::string s;
-    char c[2];
+    char c;
     size_t r;
     do
     {
-        r = recv(*fd, c, sizeof(char), 0);
-        s.append(&c[0]);
+        r = recv(*fd, &c, sizeof(char), 0);
+        s += c;
     }
     while(r == 1 && s.find("\r\n\r\n") == std::string::npos);
     return s;
@@ -513,12 +513,12 @@ std::string recv_n(int *fd, int n)
     std::string s;
     int c_n = n;
     size_t r;
-    char c[2];
+    char c;
     do
     {
-        r = recv(*fd, c, sizeof(char), 0);
+        r = recv(*fd, &c, sizeof(char), 0);
         c_n -= r;
-        s.append(&c[0]);
+        s += c;
     }
     while(r == 1 && c_n > 0);
     return s;
