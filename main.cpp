@@ -715,7 +715,7 @@ void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
             response.append("<td>\r\n");
             if(!(strcmp(msg_value, "##unsupported##") == 0))
             {
-                response.append("<a href=\"/html/");
+                response.append("<a href=\"/");
                 response.append(msg_name);
                 response.append("\">");
                 response.append(msg_name);
