@@ -187,11 +187,7 @@ int main(int argc, char **argv)
 
 	const char *wbname = NULL;
     int port = DEFAULT_PORT;
-#ifdef CUSTOM_WB_NAME
-	const char *default_name = CUSTOM_WB_NAME;
-#else
 	const char *default_name = GSW_DEFAULT_NAME;
-#endif
 	wbname = default_name;
 
 	while((op = getopt(argc, argv, "p:w:")) != -1)
