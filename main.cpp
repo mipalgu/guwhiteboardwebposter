@@ -15,7 +15,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
+
+#undef __block
+#define __block _xblock
+#include <unistd.h> //optargs
+#undef __block
+#define __block __attribute__((__blocks__(byref)))
+
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <netinet/in.h>
