@@ -16,11 +16,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wreserved-id-macro"
+#pragma clang diagnostic ignored "-Wunused-macros"
+
 #undef __block
 #define __block _xblock
 #include <unistd.h> //optargs
 #undef __block
 #define __block __attribute__((__blocks__(byref)))
+
+#pragma clang diagnostic pop
 
 #include <sys/types.h> 
 #include <sys/socket.h>
