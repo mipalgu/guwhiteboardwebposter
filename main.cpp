@@ -494,6 +494,11 @@ void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
             handle_json(fd, wbd, &header_info, body);
             break;
         }
+        case WildCard: //Accept: */*, give them JSON
+        {
+            handle_json(fd, wbd, &header_info, body);
+            break;
+        }
         default:
         {
             break;
