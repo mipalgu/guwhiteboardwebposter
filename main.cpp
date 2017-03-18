@@ -127,6 +127,7 @@ enum Content_Type
 {
     Text_HTML = 0,
     Application_vnd_api_json,
+    Application_json,
     WildCard,
     NUM_SUPPORTED_CONTENT_TYPES
 };
@@ -136,6 +137,7 @@ const char *Content_Type_Strings[] =
 {
         "text/html",
         "application/vnd.api+json",
+        "application/json",
         "*/*"
 };
 
@@ -490,6 +492,7 @@ void handle_request(int *fd, gu_simple_whiteboard_descriptor *wbd, char *header)
             break;
         }
         case Application_vnd_api_json:
+        case Application_json:
         {
             handle_json(fd, wbd, &header_info, body);
             break;
