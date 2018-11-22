@@ -199,7 +199,7 @@ int main(int argc, char **argv)
 	//-----------------------------------
 	int op;
 
-	const char *wbname = NULL;
+	const char *wbname = nullptr;
     int port = DEFAULT_PORT;
 	const char *default_name = GSW_DEFAULT_NAME;
 	wbname = default_name;
@@ -247,11 +247,12 @@ void serverd(const char *wbname, int port)
 
     while (!aborting_server) 
     {
-        fd = accept(sd->socket, NULL, NULL);
+        fd = accept(sd->socket, nullptr, nullptr);
 
         std::string header = recv_header(&fd);
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wold-style-cast"
+#pragma clang diagnostic ignored "-Wcast-qual"
         char *header_c = (char *)header.c_str();
 #pragma clang diagnostic push
 
@@ -832,10 +833,10 @@ socket_descriptor *init_socket(int port)
     char port_s[4];
     snprintf(&port_s[0], 5, "%d", port);
 
-    assert ((rv = getaddrinfo(NULL, &port_s[0], &hints, &servinfo)) == 0); 
+    assert ((rv = getaddrinfo(nullptr, &port_s[0], &hints, &servinfo)) == 0); 
 
     // loop through all the results and bind to the first we can
-    for(p = servinfo; p != NULL; p = p->ai_next) 
+    for(p = servinfo; p != nullptr; p = p->ai_next) 
     {
         if ((sd->socket = socket(p->ai_family, p->ai_socktype, 0)) == -1) 
         {
@@ -857,7 +858,7 @@ socket_descriptor *init_socket(int port)
         break;
     }
 
-    assert (p != NULL);
+    assert (p != nullptr);
 
     freeaddrinfo(servinfo);
 
