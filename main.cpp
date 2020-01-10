@@ -201,7 +201,13 @@ int main(int argc, char **argv)
 
 	const char *wbname = nullptr;
     int port = DEFAULT_PORT;
+#ifndef CUSTOM_WB_NAME
 	const char *default_name = GSW_DEFAULT_NAME;
+#else
+	const char *default_name = CUSTOM_WB_NAME;
+    fprintf(stderr, "Using a custom whiteboard with the name '%s'\n", default_name);
+#endif
+
 	wbname = default_name;
 
 	while((op = getopt(argc, argv, "p:w:")) != -1)
