@@ -837,7 +837,7 @@ socket_descriptor *init_socket(int port)
     hints.ai_flags = AI_PASSIVE; // use my IP
 
     char port_s[4];
-    snprintf(&port_s[0], 5, "%d", port);
+    snprintf(&port_s[0], 4, "%d", port);
 
     assert ((rv = getaddrinfo(nullptr, &port_s[0], &hints, &servinfo)) == 0); 
 
