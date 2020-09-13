@@ -291,7 +291,7 @@ bool parse_header(char *header, struct header_info_s *header_s)
     memcpy(header_s->url, url, sizeof(url));
 
     //get fields
-    char accept[100];
+    char accept[256];
     memset(&accept[0], 0, sizeof(accept));
     if(get_header_line(header, "Accept", accept) == false)
         return false;
