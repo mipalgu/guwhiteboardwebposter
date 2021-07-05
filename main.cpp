@@ -577,9 +577,9 @@ void handle_get_request_json(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
         for(int i = 0; i < GSW_NUM_TYPES_DEFINED; i++)
         {
             response.append("\t{\"type\":\"");
-            response.append(guWhiteboard::WBTypes_stringValues[i]);
+            response.append(WBTypes_stringValues[i]);
             response.append("\", \"parsable\":");
-            char *s = whiteboard_get_from(wbd, guWhiteboard::WBTypes_stringValues[i]);
+            char *s = whiteboard_get_from(wbd, WBTypes_stringValues[i]);
             if(strcmp(s, "##unsupported##") == 0)
                 response.append("false");
             else
@@ -723,7 +723,7 @@ void handle_get_request_html(int *fd, gu_simple_whiteboard_descriptor *wbd, stru
 
         for(int i = 0; i < GSW_NUM_TYPES_DEFINED; i++)
         {
-            const char *msg_name = guWhiteboard::WBTypes_stringValues[i];
+            const char *msg_name = WBTypes_stringValues[i];
             char *msg_value = whiteboard_get_from(wbd, msg_name);
             response.append("<tr>\r\n");
             response.append("<td>\r\n");
