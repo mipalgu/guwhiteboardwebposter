@@ -1,4 +1,5 @@
-#guwhiteboardwebposter
+guwhiteboardwebposter
+============
 *A web server for interacting with the Whiteboard over HTTP*
 
 ---
