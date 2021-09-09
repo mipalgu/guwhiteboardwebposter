@@ -1,4 +1,7 @@
-This is a web server for interacting with the Whiteboard over HTTP
+#guwhiteboardwebposter
+*A web server for interacting with the Whiteboard over HTTP*
+
+---
 
 Default port is: 4242, configurable with -p
 Whiteboard can be specified with -w or a default is used.
